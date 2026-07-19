@@ -1,13 +1,15 @@
-const { query, Client } = require('faunadb');
+// netlify/functions/admin-list-keys/admin-list-keys.js
+const { createClient } = require('@supabase/supabase-js');
 
 const sessions = new Map();
 
 function validateSession(token) {
     if (!token) return false;
-    const session = sessions.get(token.replace('Bearer ', ''));
+    const cleanToken = token.replace('Bearer ', '');
+    const session = sessions.get(cleanToken);
     if (!session) return false;
     if (Date.now() - session.createdAt > 3600000) {
-        sessions.delete(token);
+        sessions.delete(cleanToken);
         return false;
     }
     return true;
@@ -16,29 +18,29 @@ function validateSession(token) {
 exports.handler = async (event) => {
     const auth = event.headers.authorization || '';
     if (!validateSession(auth)) {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+        return { 
+            statusCode: 401, 
+            body: JSON.stringify({ error: 'Unauthorized' }) 
+        };
     }
 
-    const client = new Client({
-        secret: process.env.FAUNADB_SERVER_SECRET,
-    });
+    const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
     try {
-        const result = await client.query(
-            query.Map(
-                query.Paginate(query.Documents(query.Collection('licenses')), { size: 1000 }),
-                query.Lambda('ref', query.Get(query.Var('ref')))
-            )
-        );
+        const { data, error } = await supabase
+            .from('licenses')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1000);
 
-        const keys = result.data.map(doc => ({
-            id: doc.ref.id,
-            ...doc.data
-        }));
+        if (error) throw error;
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ success: true, keys })
+            body: JSON.stringify({ success: true, keys: data })
         };
     } catch (error) {
         return {
