@@ -1,16 +1,25 @@
+// netlify/functions/admin-create-keys/admin-create-keys.js
 const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
 
+// Session Storage (MUSS mit admin-login synchron sein!)
 const sessions = new Map();
 
 function validateSession(token) {
     if (!token) return false;
-    const session = sessions.get(token.replace('Bearer ', ''));
+    
+    // "Bearer " entfernen
+    const cleanToken = token.replace('Bearer ', '');
+    const session = sessions.get(cleanToken);
+    
     if (!session) return false;
+    
+    // Session nach 1 Stunde ablaufen lassen
     if (Date.now() - session.createdAt > 3600000) {
-        sessions.delete(token);
+        sessions.delete(cleanToken);
         return false;
     }
+    
     return true;
 }
 
@@ -26,17 +35,39 @@ function generateSecureKey() {
 }
 
 exports.handler = async (event) => {
+    // 1. Session prüfen
     const auth = event.headers.authorization || '';
     if (!validateSession(auth)) {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+        return { 
+            statusCode: 401, 
+            body: JSON.stringify({ 
+                error: 'Unauthorized',
+                message: 'Invalid or expired session'
+            }) 
+        };
     }
 
-    const { type, count = 1 } = JSON.parse(event.body);
+    // 2. Request parsen
+    let type, count;
+    try {
+        const body = JSON.parse(event.body);
+        type = body.type || 'day';
+        count = parseInt(body.count) || 1;
+    } catch (e) {
+        return {
+            statusCode: 400,
+            body: JSON.stringify({ error: 'Invalid request body' })
+        };
+    }
+
     if (count > 100) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Max 100 keys per request' }) };
+        return { 
+            statusCode: 400, 
+            body: JSON.stringify({ error: 'Max 100 keys per request' }) 
+        };
     }
 
-    // 🔑 SUPABASE CLIENT
+    // 3. Supabase Client
     const supabase = createClient(
         process.env.SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -58,8 +89,8 @@ exports.handler = async (event) => {
             default: expiresAt = new Date(now.getTime() + 86400000);
         }
 
-        // ✅ IN SUPABASE SPEICHERN
-        const { data, error } = await supabase
+        // 4. In Supabase speichern
+        const { error } = await supabase
             .from('licenses')
             .insert({
                 key: key,
@@ -69,10 +100,10 @@ exports.handler = async (event) => {
                 is_banned: false,
                 is_activated: false,
                 hardware_id: null
-            })
-            .select();
+            });
 
         if (error) {
+            console.error('Supabase Error:', error);
             return {
                 statusCode: 500,
                 body: JSON.stringify({ 
