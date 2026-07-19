@@ -7,7 +7,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'Segoe UI', system-ui, sans-serif;
             background: #0a0a0a;
             color: #a0a0a0;
             min-height: 100vh;
@@ -277,22 +277,6 @@
             font-size: 13px;
         }
 
-        .divider {
-            border-top: 1px solid #1a1a1a;
-            margin: 20px 0;
-        }
-
-        .warning-banner {
-            background: #0a0808;
-            border: 1px solid #221111;
-            padding: 12px 16px;
-            color: #664444;
-            font-size: 11px;
-            letter-spacing: 0.5px;
-            margin-bottom: 20px;
-            border-radius: 2px;
-        }
-
         .info-box {
             background: #080808;
             padding: 14px 16px;
@@ -313,12 +297,6 @@
 <body>
 
 <div class="container">
-
-    <!-- WARNING BANNER -->
-    <div class="warning-banner">
-        ⚠ SECURITY LEVEL: MAXIMUM • ALL OPERATIONS SERVER-SIDE • ZERO CLIENT-SIDE LOGIC
-    </div>
-
     <!-- ====== LOGIN ====== -->
     <div id="loginBox" class="login-box">
         <h1>License System</h1>
@@ -440,16 +418,10 @@
 <div id="toast" class="toast"></div>
 
 <script>
-    // ============================================================
-    // ZERO CLIENT-SIDE LOGIC - EVERYTHING IS AN API CALL
-    // NO PASSWORDS, NO SECRETS, NO GENERATION LOGIC
-    // ============================================================
-
     const API = '/.netlify/functions';
     let session = null;
     let allKeys = [];
 
-    // --- DOM refs ---
     const $ = id => document.getElementById(id);
     const loginBox = $('loginBox');
     const adminPanel = $('adminPanel');
@@ -480,7 +452,6 @@
     const quickBulk = $('quickBulk');
     const exportBtn = $('exportBtn');
 
-    // --- Toast ---
     function showToast(msg, type = 'success') {
         toast.textContent = msg;
         toast.className = 'toast';
@@ -492,19 +463,22 @@
         toast._timer = setTimeout(() => { toast.style.display = 'none'; }, 3500);
     }
 
-    // --- API Helpers ---
     async function apiCall(endpoint, method = 'GET', body = null) {
         const opts = {
             method,
             headers: { 'Content-Type': 'application/json' }
         };
-        if (session) opts.headers['Authorization'] = 'Bearer ' + session;
+        
+        // ✅ WICHTIG: Session Token mitsenden!
+        if (session) {
+            opts.headers['Authorization'] = 'Bearer ' + session;
+        }
+        
         if (body) opts.body = JSON.stringify(body);
         const res = await fetch(`${API}/${endpoint}`, opts);
         return res.json();
     }
 
-    // --- Login ---
     async function login() {
         const username = usernameInput.value.trim();
         const password = passwordInput.value.trim();
@@ -517,7 +491,7 @@
         try {
             const data = await apiCall('admin-login', 'POST', { username, password });
             if (data.success) {
-                session = data.token;
+                session = data.token;  // ← Token speichern!
                 loginBox.classList.add('hidden');
                 adminPanel.classList.remove('hidden');
                 showToast('Authenticated', 'success');
@@ -542,13 +516,13 @@
         showToast('Session terminated', 'warning');
     }
 
-    // --- Generate Keys ---
     async function generateKeys() {
         const type = keyType.value;
         const count = parseInt(keyCount.value) || 1;
         if (count > 100) { showToast('Maximum 100 keys per request', 'error'); return; }
         generationResult.innerHTML = '<div class="loading">Processing...</div>';
         try {
+            // ✅ Token wird automatisch über apiCall mitgesendet!
             const data = await apiCall('admin-create-keys', 'POST', { type, count });
             if (data.success) {
                 let html = `<div style="margin-top:8px;color:#888;font-size:13px;">Generated: ${data.keys.length} keys</div>`;
@@ -572,7 +546,6 @@
         }
     }
 
-    // --- Search Key ---
     async function searchKey() {
         const key = searchKeyInput.value.trim().toUpperCase();
         if (!key) { showToast('Enter a license key', 'warning'); return; }
@@ -580,8 +553,8 @@
             const data = await apiCall('admin-get-key', 'POST', { key });
             if (data.success) {
                 const k = data.key;
-                const status = k.isBanned ? 'BANNED' : (k.isActivated ? 'ACTIVE' : 'INACTIVE');
-                const expires = k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : 'Unlimited';
+                const status = k.is_banned ? 'BANNED' : (k.is_activated ? 'ACTIVE' : 'INACTIVE');
+                const expires = k.expires_at ? new Date(k.expires_at).toLocaleDateString() : 'Unlimited';
                 keyInfo.innerHTML = `
                     <div class="info-box">
                         <div style="color:#ccc;font-family:monospace;font-size:15px;">${k.key}</div>
@@ -589,8 +562,8 @@
                             <div><span class="label">Type</span><br>${k.type.toUpperCase()}</div>
                             <div><span class="label">Status</span><br>${status}</div>
                             <div><span class="label">Expires</span><br>${expires}</div>
-                            <div><span class="label">Created</span><br>${new Date(k.createdAt).toLocaleDateString()}</div>
-                            <div style="grid-column:span 2;"><span class="label">Hardware ID</span><br><span class="mono">${k.hardwareId || 'Not activated'}</span></div>
+                            <div><span class="label">Created</span><br>${new Date(k.created_at).toLocaleDateString()}</div>
+                            <div style="grid-column:span 2;"><span class="label">Hardware ID</span><br><span class="mono">${k.hardware_id || 'Not activated'}</span></div>
                         </div>
                     </div>
                 `;
@@ -603,7 +576,6 @@
         }
     }
 
-    // --- Ban Key ---
     async function banKey() {
         const key = searchKeyInput.value.trim().toUpperCase();
         if (!key) { showToast('Enter a license key', 'warning'); return; }
@@ -620,7 +592,6 @@
         } catch (e) { showToast('Ban failed', 'error'); }
     }
 
-    // --- Unban Key ---
     async function unbanKey() {
         const key = searchKeyInput.value.trim().toUpperCase();
         if (!key) { showToast('Enter a license key', 'warning'); return; }
@@ -636,7 +607,6 @@
         } catch (e) { showToast('Unban failed', 'error'); }
     }
 
-    // --- Delete Key ---
     async function deleteKey() {
         const key = searchKeyInput.value.trim().toUpperCase();
         if (!key) { showToast('Enter a license key', 'warning'); return; }
@@ -654,7 +624,6 @@
         } catch (e) { showToast('Delete failed', 'error'); }
     }
 
-    // --- Load All Keys ---
     async function loadAllKeys() {
         try {
             const data = await apiCall('admin-list-keys');
@@ -678,17 +647,17 @@
                 <th>Key</th><th>Type</th><th>Status</th><th>Expires</th><th>HWID</th><th></th>
             </tr></thead><tbody>`;
         keys.slice(0, 100).forEach(k => {
-            const status = k.isBanned ? '<span class="status-banned">BANNED</span>' :
-                          (k.isActivated ? '<span class="status-active">ACTIVE</span>' :
+            const status = k.is_banned ? '<span class="status-banned">BANNED</span>' :
+                          (k.is_activated ? '<span class="status-active">ACTIVE</span>' :
                           '<span class="status-inactive">INACTIVE</span>');
-            const expires = k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : '∞';
+            const expires = k.expires_at ? new Date(k.expires_at).toLocaleDateString() : '∞';
             const badge = `<span class="badge badge-${k.type}">${k.type.toUpperCase()}</span>`;
             html += `<tr>
                 <td style="font-family:monospace;font-size:13px;color:#aaa;">${k.key}</td>
                 <td>${badge}</td>
                 <td>${status}</td>
                 <td style="font-size:12px;">${expires}</td>
-                <td style="font-family:monospace;font-size:11px;color:#555;">${k.hardwareId || '-'}</td>
+                <td style="font-family:monospace;font-size:11px;color:#555;">${k.hardware_id || '-'}</td>
                 <td><button class="btn" style="padding:2px 8px;font-size:11px;" onclick="searchKeyInput.value='${k.key}';searchKey();">Find</button></td>
             </tr>`;
         });
@@ -702,12 +671,11 @@
         const filtered = allKeys.filter(k =>
             k.key.toLowerCase().includes(f) ||
             k.type.includes(f) ||
-            (k.hardwareId && k.hardwareId.toLowerCase().includes(f))
+            (k.hardware_id && k.hardware_id.toLowerCase().includes(f))
         );
         renderKeys(filtered);
     }
 
-    // --- Stats ---
     async function loadStats() {
         try {
             const data = await apiCall('admin-stats');
@@ -721,7 +689,6 @@
         } catch (e) {}
     }
 
-    // --- Banned Devices ---
     async function loadBannedDevices() {
         try {
             const data = await apiCall('admin-banned-devices');
@@ -729,7 +696,7 @@
                 let html = '';
                 data.devices.forEach(d => {
                     html += `<div style="background:#080808;padding:10px 14px;border:1px solid #1a1a1a;margin-bottom:4px;font-family:monospace;font-size:13px;color:#888;">
-                        ${d.hardwareId} <span style="color:#555;font-size:11px;">banned: ${new Date(d.bannedAt).toLocaleDateString()}</span>
+                        ${d.hardware_id} <span style="color:#555;font-size:11px;">banned: ${new Date(d.banned_at).toLocaleDateString()}</span>
                     </div>`;
                 });
                 bannedList.innerHTML = html;
@@ -741,14 +708,13 @@
         }
     }
 
-    // --- Export CSV ---
     async function exportKeys() {
         try {
             const data = await apiCall('admin-list-keys');
             if (data.success) {
                 let csv = 'Key,Type,Created,Expires,Status,HardwareID\n';
                 data.keys.forEach(k => {
-                    csv += `${k.key},${k.type},${k.createdAt},${k.expiresAt||'unlimited'},${k.isBanned?'banned':(k.isActivated?'active':'inactive')},${k.hardwareId||'-'}\n`;
+                    csv += `${k.key},${k.type},${k.created_at},${k.expires_at||'unlimited'},${k.is_banned?'banned':(k.is_activated?'active':'inactive')},${k.hardware_id||'-'}\n`;
                 });
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
@@ -763,7 +729,6 @@
         }
     }
 
-    // --- Quick Actions ---
     async function quickLifetimeAction() {
         keyType.value = 'lifetime';
         keyCount.value = '1';
@@ -778,7 +743,7 @@
         await generateKeys();
     }
 
-    // --- Event Bindings ---
+    // Event Bindings
     loginBtn.addEventListener('click', login);
     logoutBtn.addEventListener('click', logout);
     genBtn.addEventListener('click', generateKeys);
