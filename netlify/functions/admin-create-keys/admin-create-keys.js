@@ -1,21 +1,31 @@
-const { query, Client } = require('faunadb');
+const { createClient } = require('@supabase/supabase-js');
+const crypto = require('crypto');
 
-// Session validation helper
 const sessions = new Map();
 
 function validateSession(token) {
     if (!token) return false;
     const session = sessions.get(token.replace('Bearer ', ''));
     if (!session) return false;
-    if (Date.now() - session.createdAt > 3600000) { // 1 hour
+    if (Date.now() - session.createdAt > 3600000) {
         sessions.delete(token);
         return false;
     }
     return true;
 }
 
+function generateSecureKey() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const bytes = crypto.randomBytes(16);
+    let key = '';
+    for (let i = 0; i < 16; i++) {
+        key += chars[bytes[i] % chars.length];
+        if (i % 4 === 3 && i < 15) key += '-';
+    }
+    return key;
+}
+
 exports.handler = async (event) => {
-    // Validate session
     const auth = event.headers.authorization || '';
     if (!validateSession(auth)) {
         return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
@@ -26,9 +36,11 @@ exports.handler = async (event) => {
         return { statusCode: 400, body: JSON.stringify({ error: 'Max 100 keys per request' }) };
     }
 
-    const client = new Client({
-        secret: process.env.FAUNADB_SERVER_SECRET,
-    });
+    // 🔑 SUPABASE CLIENT
+    const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
     const generatedKeys = [];
 
@@ -46,22 +58,29 @@ exports.handler = async (event) => {
             default: expiresAt = new Date(now.getTime() + 86400000);
         }
 
-        await client.query(
-            query.Create(
-                query.Collection('licenses'),
-                {
-                    data: {
-                        key: key,
-                        type: type,
-                        createdAt: now.toISOString(),
-                        expiresAt: expiresAt ? expiresAt.toISOString() : null,
-                        isBanned: false,
-                        isActivated: false,
-                        hardwareId: null,
-                    }
-                }
-            )
-        );
+        // ✅ IN SUPABASE SPEICHERN
+        const { data, error } = await supabase
+            .from('licenses')
+            .insert({
+                key: key,
+                type: type,
+                created_at: now.toISOString(),
+                expires_at: expiresAt ? expiresAt.toISOString() : null,
+                is_banned: false,
+                is_activated: false,
+                hardware_id: null
+            })
+            .select();
+
+        if (error) {
+            return {
+                statusCode: 500,
+                body: JSON.stringify({ 
+                    success: false, 
+                    error: 'Database error: ' + error.message 
+                })
+            };
+        }
 
         generatedKeys.push(key);
     }
@@ -75,15 +94,3 @@ exports.handler = async (event) => {
         })
     };
 };
-
-function generateSecureKey() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const crypto = require('crypto');
-    const bytes = crypto.randomBytes(16);
-    let key = '';
-    for (let i = 0; i < 16; i++) {
-        key += chars[bytes[i] % chars.length];
-        if (i % 4 === 3 && i < 15) key += '-';
-    }
-    return key;
-}
