@@ -1,8 +1,7 @@
 {
   "name": "license-system",
   "version": "3.0.0",
-  "description": "Secure license management system",
   "dependencies": {
-    "faunadb": "^4.8.0"
+    "@supabase/supabase-js": "^2.43.0"
   }
 }
