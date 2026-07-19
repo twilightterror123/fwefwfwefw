@@ -1,13 +1,15 @@
-const { query, Client } = require('faunadb');
+// netlify/functions/admin-ban-key/admin-ban-key.js
+const { createClient } = require('@supabase/supabase-js');
 
 const sessions = new Map();
 
 function validateSession(token) {
     if (!token) return false;
-    const session = sessions.get(token.replace('Bearer ', ''));
+    const cleanToken = token.replace('Bearer ', '');
+    const session = sessions.get(cleanToken);
     if (!session) return false;
     if (Date.now() - session.createdAt > 3600000) {
-        sessions.delete(token);
+        sessions.delete(cleanToken);
         return false;
     }
     return true;
@@ -16,39 +18,54 @@ function validateSession(token) {
 exports.handler = async (event) => {
     const auth = event.headers.authorization || '';
     if (!validateSession(auth)) {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+        return { 
+            statusCode: 401, 
+            body: JSON.stringify({ error: 'Unauthorized' }) 
+        };
     }
 
     const { key } = JSON.parse(event.body);
 
-    const client = new Client({
-        secret: process.env.FAUNADB_SERVER_SECRET,
-    });
+    const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
     try {
-        const result = await client.query(
-            query.Get(query.Match(query.Index('licenses_by_key'), key))
-        );
+        // 1. Key finden
+        const { data: license, error: findError } = await supabase
+            .from('licenses')
+            .select('*')
+            .eq('key', key)
+            .single();
 
-        await client.query(
-            query.Update(result.ref, {
-                data: { isBanned: true, bannedAt: new Date().toISOString() }
+        if (findError || !license) {
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ success: false, error: 'Key not found' })
+            };
+        }
+
+        // 2. Key bannen
+        const { error: updateError } = await supabase
+            .from('licenses')
+            .update({
+                is_banned: true,
+                banned_at: new Date().toISOString()
             })
-        );
+            .eq('key', key);
 
-        if (result.data.hardwareId) {
-            await client.query(
-                query.Create(
-                    query.Collection('banned_devices'),
-                    {
-                        data: {
-                            hardwareId: result.data.hardwareId,
-                            bannedAt: new Date().toISOString(),
-                            reason: `Key ${key} banned`
-                        }
-                    }
-                )
-            );
+        if (updateError) throw updateError;
+
+        // 3. Hardware-ID in banned_devices speichern
+        if (license.hardware_id) {
+            await supabase
+                .from('banned_devices')
+                .insert({
+                    hardware_id: license.hardware_id,
+                    banned_at: new Date().toISOString(),
+                    reason: `Key ${key} banned`
+                });
         }
 
         return {
@@ -57,8 +74,8 @@ exports.handler = async (event) => {
         };
     } catch (error) {
         return {
-            statusCode: 200,
-            body: JSON.stringify({ success: false, error: 'Key not found' })
+            statusCode: 500,
+            body: JSON.stringify({ success: false, error: error.message })
         };
     }
 };
