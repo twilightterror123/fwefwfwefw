@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Twilight Linux Chrome UI",
+  "version": "1.0.0",
+  "description": "Linux-inspired Chrome extension with a persistent desktop-style new tab and launcher.",
+  "permissions": ["storage", "tabs"],
+  "chrome_url_overrides": {"newtab": "newtab.html"},
+  "action": {"default_title": "Twilight Linux", "default_popup": "popup.html"},
+  "icons": {},
+  "content_scripts": [{"matches": ["https://*/*", "http://*/*"], "js": ["content.js"], "run_at": "document_idle"}]
+}
